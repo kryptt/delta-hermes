@@ -44,10 +44,38 @@ def _default_delta_bin():
     return str(pathlib.Path.home() / ".local" / "bin" / "delta")
 
 
+def _default_producer_name():
+    """Per-profile identity for Delta records: who this agent shows as.
+
+    Same plugin code serves every profile (Dave, Simon, ...), so the name is
+    NEVER hardcoded. Resolution order:
+      1. DELTA_PRODUCER_NAME env var
+      2. `producer_name` in $HERMES_HOME/delta-bridge/config.json
+      3. capitalized basename of HERMES_HOME (profile dir), when set
+      4. "Hermes" (generic fallback)
+    """
+    env = os.environ.get("DELTA_PRODUCER_NAME")
+    if env:
+        return env
+    home = pathlib.Path(os.environ.get("HERMES_HOME", pathlib.Path.home()))
+    cfg = home / "delta-bridge" / "config.json"
+    try:
+        name = json.loads(cfg.read_text()).get("producer_name")
+        if name:
+            return str(name)
+    except Exception:
+        pass
+    if os.environ.get("HERMES_HOME"):
+        base = home.name
+        if base and base != "home":
+            return base[:1].upper() + base[1:]
+    return "Hermes"
+
+
 STATE_DIR = _default_state_dir()
 DELTA_BIN = _default_delta_bin()
 SOURCE = "hermes"
-PRODUCER_NAME = "Dave"
+PRODUCER_NAME = _default_producer_name()
 MAX_BATCH_BYTES = 2_000_000
 
 
@@ -366,7 +394,8 @@ def _item_text(item):
 
 def _mentions_hermes(text):
     lowered = text.lower()
-    # @Dave is the address form (multiple agents share threads); keep the
-    # historical @Hermes/@queque terms for backward compatibility.
-    return any(term in lowered for term in ("@dave", "dave", "@hermes", "hermes",
-                                            "@queque", "queque", "delta-bridge"))
+    # Per-profile agent name (@Dave, @Simon, ...) plus the shared/generic
+    # terms; PRODUCER_NAME is per-profile config, never hardcoded.
+    terms = {"@hermes", "hermes", "@queque", "queque", "delta-bridge",
+             f"@{PRODUCER_NAME.lower()}", PRODUCER_NAME.lower()}
+    return any(term in lowered for term in terms)

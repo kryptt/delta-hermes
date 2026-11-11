@@ -241,7 +241,7 @@ def _cmd_delta_join(args, session_id=None, session_key=None, **kw):
     _start_watch(bridge)
     return (f"Bridged session {session_id} -> thread {thread} "
             f"(next sequence {next_seq}). Recording turns and watching for "
-            f"@Hermes mentions. Say /delta-leave to unbind.")
+            f"@{PRODUCER_NAME} mentions. Say /delta-leave to unbind.")
 
 
 def _cmd_delta_leave(args, session_id=None, **kw):
