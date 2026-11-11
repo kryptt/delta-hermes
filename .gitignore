@@ -1,0 +1,6 @@
+# state / logs (never commit)
+delta-bridge/
+__pycache__/
+*.pyc
+*.log
+.outbox.jsonl

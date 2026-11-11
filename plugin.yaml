@@ -1,0 +1,15 @@
+name: delta-bridge
+version: "0.1.0"
+description: ACP live-bridge to Delta (delta.dev) — records Hermes turns into shared threads via the delta CLI and injects teammate activity (standby until mentioned).
+author: Queque
+provides_hooks:
+  - post_gateway_admission
+  - pre_llm_call
+  - pre_tool_call
+  - post_tool_call
+  - on_stream_delta
+  - on_stream_end
+  - post_llm_call
+  - on_session_end
+  - agent_loop_stopped
+  - on_human_input_request
