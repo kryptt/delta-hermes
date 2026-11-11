@@ -472,6 +472,105 @@ class BridgeTests(unittest.TestCase):
             self.assertIn("Unbridged session sess_cmd", leave_msg)
             self.assertFalse(br.binding_path.exists())
 
+    def test_source_is_per_profile(self):
+        _, dave_mod = _load_package(self.state_dir, producer_name="Dave")
+        self.assertEqual(dave_mod.SOURCE, "hermes-dave")
+        self.assertEqual(dave_mod.LEGACY_SOURCE, "hermes")
+        _, simon_mod = _load_package(self.state_dir, producer_name="Simon")
+        self.assertEqual(simon_mod.SOURCE, "hermes-simon")
+
+    def test_legacy_binding_migration_on_ready(self):
+        # A binding saved by an older version: no "source" key, high sequence
+        # accumulated under the shared legacy source, and a stuck outbox.
+        legacy_binding = {
+            "session_id": "sess_legacy",
+            "thread": "thread_1",
+            "locator": "thread_1",
+            "next_sequence": 229,
+            "last_turn_sequence": 153,
+            "active_turn_sequence": None,
+            "gated": False,
+            "seen_ids": [],
+        }
+        (self.state_dir / "sess_legacy.json").write_text(
+            json.dumps(legacy_binding), encoding="utf-8"
+        )
+        br = self.bridge_mod.Bridge.load("sess_legacy")
+        self.assertIsNotNone(br)
+        self.assertEqual(br.source, self.bridge_mod.LEGACY_SOURCE)
+        self.assertEqual(br.next_sequence, 229)
+
+        br.outbox_path.parent.mkdir(parents=True, exist_ok=True)
+        br.outbox_path.write_text(
+            json.dumps({"schemaVersion": 1, "sequence": 229,
+                        "update": {"sessionUpdate": "agent_message"}}) + "\n",
+            encoding="utf-8",
+        )
+
+        state = self.bridge_mod.WatchState(initial_live=False)
+        self.bridge_mod._handle_watch_line(
+            {
+                "type": "ready",
+                "thread_id": "thread_1",
+                "producer": {
+                    "source": self.bridge_mod.SOURCE,
+                    "external_id": "sess_legacy",
+                    "actor_id": "actor_self",
+                    "next_sequence": 1,
+                    "turn": None,
+                },
+            },
+            br,
+            lambda text: None,
+            state,
+        )
+        # Migration: server bookkeeping adopted exactly, outbox dropped.
+        self.assertEqual(br.source, self.bridge_mod.SOURCE)
+        self.assertEqual(br.next_sequence, 1)
+        self.assertEqual(br.outbox_path.read_text(encoding="utf-8").strip(), "")
+        # Persisted state reflects the migration.
+        reloaded = json.loads(br.binding_path.read_text(encoding="utf-8"))
+        self.assertEqual(reloaded["source"], self.bridge_mod.SOURCE)
+        self.assertEqual(reloaded["next_sequence"], 1)
+
+        # Subsequent appends stage with the new source's sequence.
+        br.start_turn("t_new")
+        records = [json.loads(ln) for ln in
+                   br.outbox_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        self.assertEqual(records[0]["sequence"], 1)
+
+    def test_same_source_ready_keeps_max_sequence(self):
+        br = self.bridge_mod.Bridge("sess_same", "thread_1", next_sequence=7,
+                                    source=self.bridge_mod.SOURCE)
+        state = self.bridge_mod.WatchState(initial_live=False)
+        self.bridge_mod._handle_watch_line(
+            {
+                "type": "ready",
+                "thread_id": "thread_1",
+                "producer": {"source": self.bridge_mod.SOURCE,
+                             "external_id": "sess_same", "actor_id": None,
+                             "next_sequence": 4, "turn": None},
+            },
+            br,
+            lambda text: None,
+            state,
+        )
+        # No migration: local in-flight staging wins (max, never regress).
+        self.assertEqual(br.source, self.bridge_mod.SOURCE)
+        self.assertEqual(br.next_sequence, 7)
+
+    def test_legacy_source_items_treated_as_own_activity(self):
+        br = self.bridge_mod.Bridge("sess_echo", "thread_1", source=self.bridge_mod.SOURCE)
+        item = {"id": "item_old", "kind": "agent_message",
+                "producer": {"name": self.bridge_mod.LEGACY_SOURCE},
+                "content": {"text": "@hermes hello from the old shared source"}}
+        self.assertTrue(self.bridge_mod._is_own_activity(item, {}, br))
+        # But a human named differently is never swallowed by the legacy term.
+        human = {"id": "item_human", "kind": "user_message",
+                 "author": {"name": "Rodolfo", "user_id": "u_1"},
+                 "content": {"text": "ping"}}
+        self.assertFalse(self.bridge_mod._is_own_activity(human, {}, br))
+
 
 if __name__ == "__main__":
     unittest.main()

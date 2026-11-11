@@ -30,7 +30,9 @@ import time
 
 CONTRACT_MIN = 8
 CONTRACT_MAX = 11
-SOURCE = "hermes"
+# Producer identity is per-profile (see SOURCE below); bindings recorded before
+# that used this shared source, so keep it for legacy-detection/migration.
+LEGACY_SOURCE = "hermes"
 MAX_BATCH_BYTES = 2_000_000
 MAX_SEEN_IDS = 500
 
@@ -76,7 +78,7 @@ def _probes_as_delta(executable: str) -> bool:
             encoding="utf-8",
             errors="replace",
             timeout=10,
-            env={**os.environ, "DELTA_CLI_INTEGRATION": SOURCE},
+            env={**os.environ, "DELTA_CLI_INTEGRATION": LEGACY_SOURCE},
         )
         data = json.loads(proc.stdout)
         return (
@@ -182,6 +184,10 @@ def _default_producer_name(state_dir: pathlib.Path | None = None) -> str:
 STATE_DIR = _default_state_dir()
 DELTA_BIN = _default_delta_bin()
 PRODUCER_NAME = _default_producer_name(STATE_DIR)
+# Per-profile producer source: every profile (Dave, Simon, ...) records under its
+# own source so two profiles watching the same thread can never fence each other
+# (Delta allows one live producer per (source, external-id) pair).
+SOURCE = f"hermes-{PRODUCER_NAME.lower()}"
 
 
 def _safe_session_filename(session_id: str) -> str:
@@ -394,6 +400,7 @@ class Bridge:
         user_id: str | None = None,
         seen_ids: list[str] | None = None,
         active_turn_sequence: int | None = None,
+        source: str | None = None,
     ):
         self.session_id = session_id
         self.thread = thread
@@ -403,6 +410,9 @@ class Bridge:
         self.gated = bool(gated)
         self.actor_id = actor_id
         self.user_id = user_id
+        # Producer identity this binding was recorded under. Bindings saved by
+        # older plugin versions lack this field and default to LEGACY_SOURCE.
+        self.source = source if source is not None else SOURCE
         self.seen_ids: list[str] = list(seen_ids or [])
         self._seen_set: set[str] = set(self.seen_ids)
         self.turn_id: str | None = None
@@ -480,6 +490,7 @@ class Bridge:
             "actor_id": self.actor_id,
             "user_id": self.user_id,
             "seen_ids": self.seen_ids[-MAX_SEEN_IDS:],
+            "source": self.source,
         }
         _atomic_write_text(self.binding_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
@@ -512,6 +523,9 @@ class Bridge:
             user_id=data.get("user_id"),
             seen_ids=data.get("seen_ids"),
             active_turn_sequence=data.get("active_turn_sequence"),
+            # Absent key = binding recorded by an older version under the
+            # shared legacy source.
+            source=data.get("source") or LEGACY_SOURCE,
         )
 
     # ---- appending + delivery ----
@@ -958,7 +972,7 @@ def _is_own_activity(item: dict, line: dict, bridge: Bridge) -> bool:
     if actor_id and bridge.actor_id and actor_id == bridge.actor_id:
         return True
     # Only treat matching display name as self-echo when it isn't a different human user_id
-    if name in (SOURCE.lower(), PRODUCER_NAME.lower()):
+    if name in (SOURCE.lower(), PRODUCER_NAME.lower(), LEGACY_SOURCE):
         if user_id is None or (bridge.user_id and user_id == bridge.user_id):
             return True
     return False
@@ -998,6 +1012,20 @@ def _handle_watch_line(
             if isinstance(producer.get("actor_id"), str) and producer["actor_id"]:
                 bridge.actor_id = producer["actor_id"]
             p_seq = producer.get("next_sequence")
+            if bridge.source != SOURCE:
+                # Producer identity migrated (e.g. legacy shared-source binding
+                # loaded by a per-profile-source build): adopt the server's
+                # bookkeeping for the new source exactly, and drop outbox
+                # records staged under the old identity — their sequences are
+                # not valid for the new producer and can never be acknowledged.
+                bridge.source = SOURCE
+                if isinstance(p_seq, int):
+                    bridge.next_sequence = max(1, p_seq)
+                try:
+                    if bridge.outbox_path.exists():
+                        bridge.outbox_path.write_text("", encoding="utf-8")
+                except Exception:  # noqa: BLE001
+                    pass
             if isinstance(p_seq, int) and p_seq > bridge.next_sequence:
                 bridge.next_sequence = p_seq
             turn = producer.get("turn")

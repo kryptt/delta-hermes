@@ -1,5 +1,5 @@
 name: delta-bridge
-version: "0.1.0"
+version: "0.2.0"
 description: ACP live-bridge to Delta (delta.dev) — records Hermes turns into shared threads via the delta CLI and injects teammate activity (standby until mentioned).
 author: Queque
 provides_hooks:

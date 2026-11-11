@@ -293,7 +293,10 @@ def _cmd_delta_join(args, session_id=None, session_key=None, **kw):
             existing.watch_proc.stop()
             existing.watch_proc = None
         if existing.thread == thread_id or existing.locator == locator:
-            next_seq = max(next_seq, existing.next_sequence)
+            # Only carry over sequence bookkeeping when the existing binding was
+            # recorded under the same producer source we just queried.
+            if existing.source == SOURCE:
+                next_seq = max(next_seq, existing.next_sequence)
             seen_ids = existing.seen_ids
 
     bridge = Bridge(
