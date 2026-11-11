@@ -29,7 +29,7 @@ through the Delta CLI's recording protocol.
 
 ```bash
 # from the published repo:
-hermes plugins install kryptt/hermes-delta-bridge
+hermes plugins install kryptt/delta-hermes
 hermes plugins enable delta-bridge
 ```
 
