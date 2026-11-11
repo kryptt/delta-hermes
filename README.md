@@ -28,8 +28,8 @@ through the Delta CLI's recording protocol.
 ## Install
 
 ```bash
-# from a Git URL (once published), or from a local checkout:
-hermes plugins install <owner>/delta-bridge
+# from the published repo:
+hermes plugins install quotafitness/hermes-delta-bridge
 hermes plugins enable delta-bridge
 ```
 
