@@ -47,7 +47,7 @@ def _default_delta_bin():
 STATE_DIR = _default_state_dir()
 DELTA_BIN = _default_delta_bin()
 SOURCE = "hermes"
-PRODUCER_NAME = "Hermes"
+PRODUCER_NAME = "Dave"
 MAX_BATCH_BYTES = 2_000_000
 
 
@@ -366,5 +366,7 @@ def _item_text(item):
 
 def _mentions_hermes(text):
     lowered = text.lower()
-    return any(term in lowered for term in ("@hermes", "hermes", PRODUCER_NAME.lower(),
+    # @Dave is the address form (multiple agents share threads); keep the
+    # historical @Hermes/@queque terms for backward compatibility.
+    return any(term in lowered for term in ("@dave", "dave", "@hermes", "hermes",
                                             "@queque", "queque", "delta-bridge"))
