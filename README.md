@@ -71,8 +71,9 @@ Hermes session ──hooks──▶ ACP records ──▶ disk outbox ──▶ 
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `DELTA_BIN` | `delta` on PATH, else `~/.local/bin/delta` | Delta CLI binary |
-| `DELTA_BRIDGE_STATE_DIR` | `$HERMES_HOME/delta-bridge` | bindings + outbox |
+| `DELTA_BIN` | `delta` on PATH (verified via `thread contract`), platform install paths, or `~/.local/bin/delta` | Delta CLI binary |
+| `DELTA_BRIDGE_STATE_DIR` | `$HERMES_HOME/delta-bridge` (or `~/.hermes/delta-bridge`) | bindings + outbox |
+| `DELTA_PRODUCER_NAME` | `config.json` `producer_name`, profile name, or `Hermes` | Display identity & `@mention` handle |
 
 ## Layout
 

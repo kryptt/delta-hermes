@@ -3,7 +3,8 @@
 Purpose: verify the EXACT keyword payloads the running Hermes build delivers
 per hook, so the bridge is built against real field names, not docs alone.
 
-Writes one JSON object per line to /opt/data/cache/scratch/delta-hook-probe.jsonl
+Writes one JSON object per line to $DELTA_HOOK_PROBE_LOG (default:
+$DELTA_BRIDGE_STATE_DIR/delta-hook-probe.jsonl or ~/.hermes/delta-bridge/delta-hook-probe.jsonl).
 Payloads are SANITIZED: values become {type, len/sample} summaries — field
 names and shapes are what matters here, not content.
 
@@ -11,10 +12,21 @@ Remove or disable this plugin once the bridge is built.
 """
 
 import json
+import os
 import pathlib
 import time
 
-LOG_PATH = pathlib.Path("/opt/data/cache/scratch/delta-hook-probe.jsonl")
+
+def _default_log_path() -> pathlib.Path:
+    if os.environ.get("DELTA_HOOK_PROBE_LOG"):
+        return pathlib.Path(os.environ["DELTA_HOOK_PROBE_LOG"]).expanduser()
+    if os.environ.get("DELTA_BRIDGE_STATE_DIR"):
+        return pathlib.Path(os.environ["DELTA_BRIDGE_STATE_DIR"]).expanduser() / "delta-hook-probe.jsonl"
+    hermes_home = pathlib.Path(os.environ.get("HERMES_HOME") or (pathlib.Path.home() / ".hermes")).expanduser()
+    return hermes_home / "delta-bridge" / "delta-hook-probe.jsonl"
+
+
+LOG_PATH = _default_log_path()
 
 HOOKS = [
     "pre_llm_call",
@@ -55,8 +67,9 @@ def _make_logger(name):
         try:
             payload = {k: _summarize(v) for k, v in kwargs.items()}
             rec = {"hook": name, "ts": time.time(), "fields": sorted(payload), "payload": payload}
-            with LOG_PATH.open("a") as f:
-                f.write(json.dumps(rec, sort_keys=True) + "\n")
+            LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with LOG_PATH.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, sort_keys=True, ensure_ascii=False) + "\n")
         except Exception as exc:  # never break the agent loop
             print(f"[delta-hook-probe] {name} log failed: {exc!r}", flush=True)
 
@@ -69,8 +82,9 @@ def register(ctx):
     # report which hooks actually registered (some may be rejected if invalid)
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with LOG_PATH.open("a") as f:
+        with LOG_PATH.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"hook": "__register__", "ts": time.time(),
                                 "registered": HOOKS}) + "\n")
     except Exception:
         pass
+
